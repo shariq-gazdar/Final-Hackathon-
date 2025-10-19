@@ -9,7 +9,12 @@ import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(
+  cors({
+    origin: "https://final-hackathon-zeta-three.vercel.app/",
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // Multer for file uploads
