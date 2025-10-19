@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import API from "@/lib/api"; // axios instance pointing to your backend
+import Markdown from "react-markdown";
 
 export default function ChatComponent() {
   const { user } = useAuth();
@@ -22,12 +23,12 @@ export default function ChatComponent() {
         const res = await API.get(
           `/chat/history/${user.id}?report=${reportName}`
         );
-        setMessages(
-          res.data.flatMap((c) => [
-            { role: "user", content: c.message },
-            { role: "ai", content: c.response },
-          ])
-        );
+        // Map DB chats to frontend messages
+        const mappedMessages = res.data.flatMap((c) => [
+          { role: "user", content: c.message },
+          { role: "ai", content: c.response },
+        ]);
+        setMessages(mappedMessages);
       } catch (err) {
         console.error("Error loading chat history:", err);
       }
@@ -41,11 +42,7 @@ export default function ChatComponent() {
   }, [messages]);
 
   const handleSend = async () => {
-    console.log("handleSend triggered");
-    if ((!input && !file) || !user) {
-      console.log("No input or file, or user not logged in");
-      return;
-    }
+    if ((!input && !file) || !user) return;
 
     setLoading(true);
 
@@ -56,14 +53,14 @@ export default function ChatComponent() {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // Prepare form data (file + prompt)
+      // Always use FormData to unify backend expectations
       const formData = new FormData();
-      if (input) formData.append("prompt", input);
-      if (file) formData.append("file", file);
       formData.append("userId", user.id);
       formData.append("reportName", reportName);
+      if (input) formData.append("prompt", input);
+      if (file) formData.append("file", file);
 
-      // Send to backend which handles Gemini AI
+      // Send to Gemini AI
       const { data } = await API.post("/gemini-analyze", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -71,13 +68,18 @@ export default function ChatComponent() {
       const aiMessage = { role: "ai", content: data.response };
       setMessages((prev) => [...prev, aiMessage]);
 
-      // Save chat in DB
-      await API.post("/chat/save", formData);
+      // Save chat to DB
+      await API.post("/chat/save", {
+        userId: user.id,
+        reportName,
+        message: input || `Uploaded file: ${file?.name}`,
+        response: data.response,
+      });
 
       setFile(null);
       setInput("");
     } catch (err) {
-      console.error("AI request failed:", err);
+      console.error("AI request failed:", err.response || err);
       alert("Failed to get AI response. Check console for details.");
     } finally {
       setLoading(false);
@@ -118,7 +120,7 @@ export default function ChatComponent() {
                 : "bg-gray-200 self-start"
             }`}
           >
-            {msg.content}
+            <Markdown>{msg.content}</Markdown>
           </div>
         ))}
         <div ref={scrollRef} />

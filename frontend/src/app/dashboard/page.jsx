@@ -124,7 +124,7 @@ const Dashboard = () => {
 
           <Card
             className="hover:shadow-lg cursor-pointer"
-            onClick={() => router.push("/reports")}
+            onClick={() => router.push("/chat-history")}
           >
             <CardHeader className="flex items-center gap-3">
               <div className="bg-secondary/10 p-3 rounded-xl">

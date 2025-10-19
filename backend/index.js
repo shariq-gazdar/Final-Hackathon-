@@ -9,12 +9,7 @@ import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
-app.use(
-  cors({
-    origin: "https://final-hackathon-zeta-three.vercel.app/",
-    credentials: true,
-  })
-);
+app.use(cors({ origin: "http://localhost:3000", credentials: true }));
 app.use(express.json());
 
 // Multer for file uploads
@@ -111,16 +106,16 @@ app.get("/api/me", async (req, res) => {
 
 // Save chat
 // Save chat to MongoDB
-app.post("/chat/save", upload.single("file"), async (req, res) => {
+app.post("api/chat/save", async (req, res) => {
   try {
-    const { userId, reportName, prompt, message, response } = req.body;
+    const { userId, reportName, message, response } = req.body;
 
     if (!userId) return res.status(400).json({ error: "userId is required" });
 
     const chat = new Chat({
       userId,
       reportName,
-      message: message || prompt,
+      message,
       response,
     });
 
@@ -150,7 +145,11 @@ app.get("/api/chat/history/:userId", async (req, res) => {
 // Gemini AI analyze (text + optional file)
 app.post("/api/gemini-analyze", upload.single("file"), async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt, userId, reportName } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+    if (!reportName)
+      return res.status(400).json({ error: "reportName is required" });
+
     const file = req.file;
     const contents = [];
 
@@ -162,23 +161,64 @@ app.post("/api/gemini-analyze", upload.single("file"), async (req, res) => {
           data: base64File,
         },
       });
-      // You can also add a guiding instruction for the AI
-      contents.push({ text: "Explain this report in simple words." });
+      // guiding instruction for AI
+      contents.push({
+        text: "Explain this report in detail and professionally.",
+      });
     }
 
     if (prompt) {
       contents.push({ text: prompt });
     }
 
-    const response = await ai.models.generateContent({
+    // Generate AI response
+    const aiResponse = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents,
     });
 
-    res.json({ response: response.text });
+    const responseText = aiResponse.text;
+
+    // Save to MongoDB
+    const chat = new Chat({
+      userId,
+      reportName,
+      message: prompt || (file ? `Uploaded file: ${file.originalname}` : ""),
+      response: responseText,
+    });
+    await chat.save();
+
+    res.json({ response: responseText, chatId: chat._id });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Gemini analyze failed" });
+  }
+});
+
+app.get("/api/chat/list/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    // Aggregate to get latest chat per reportName
+    const chats = await Chat.aggregate([
+      { $match: { userId } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$reportName",
+          latestMessage: { $first: "$message" },
+          latestResponse: { $first: "$response" },
+          createdAt: { $first: "$createdAt" },
+        },
+      },
+      { $sort: { createdAt: -1 } }, // latest reports first
+    ]);
+
+    res.json(chats);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch chat list" });
   }
 });
 
